@@ -8,35 +8,16 @@ val text: List[String] = "Lorem ipsum dolor sit amet, consectetur adipiscing eli
 
 case class StateHolder(bogusState: Boolean = true)
 
-def parseLine(line: String): State[StateHolder, ValidationNel[String, Unit]] =
-  State[StateHolder, ValidationNel[String, Unit]] { state =>
-    (state, line) match {
+type TState[S, A] = StateT[Free.Trampoline, S, A]
+
+def parseLine(line: String): TState[StateHolder, ValidationNel[String, Unit]] =
+  StateT[Free.Trampoline, StateHolder, ValidationNel[String, Unit]] { state =>
+    Trampoline.done {(state, line) match {
       case (s@StateHolder(true), praesentRegex()) => (s.copy(bogusState = false), ().successNel)
       case (s@StateHolder(_), _) => (s.copy(bogusState = true), ().successNel)
-    }
+    }}
   }
-val s: State[StateHolder, List[ValidationNel[String, Unit]]] = text.traverseU(parseLine)
-val (finalStateHolder, validations) = s(StateHolder())
-//val validatedFinalState: ValidationNel[String, StateHolder] = validations.sequence.map(_ => finalStateHolder)
+val s: TState[StateHolder, List[ValidationNel[String, Unit]]] = text.traverseU(parseLine)
+val (finalStateHolder, validations) = s(StateHolder()).run
 
-
-
-//val textChunked = text.grouped(100)
-//textChunked.foldLeft(StateHolder().successNel[String])((validatedState, chunk) => {
-//  import scalaz.Validation.FlatMap._
-//  for {
-//    prevState <- validatedState
-//    nextState <- nextStateFromChunk(chunk, prevState)
-//  } yield nextState
-//})
-//
-//private def nextStateFromChunk(
-//                                chunk: List[String],
-//                                prevState: StateHolder
-//                              ): ValidationNel[String, StateHolder] = {
-//  val s                            = chunk.traverseU(parseLine)
-//  val (nextState, nextValidations) = s(prevState)
-//  nextValidations.sequence.map(_ => nextState)
-//}
-
-println("Won't be done")
+println(s"done! $finalStateHolder")

@@ -10,27 +10,31 @@ import resource._
 
 import java.nio.file.{Paths, Files}
 import org.apache.poi.xwpf.extractor._
-import org.apache.poi.xwpf.usermodel.XWPFDocument
 import scala.collection.JavaConverters._
 
-import org.apache.poi.xwpf.usermodel.XWPFDocument
-import org.apache.poi.xwpf.usermodel.Document
+import org.apache.poi.xwpf.usermodel._
 
-val tfPath = Paths.get("/Users/sjafri/Downloads/True_False_Without_Rejoinder_Template.docx")
+val tfPath = Paths.get("/Users/sjafri/Downloads/Question format.docx")
 
-//TODO couldn't get scala-arm to work for some reason use managed if I can
 val tfInputStream = Files.newInputStream(tfPath)
 val tfDoc = new XWPFDocument(tfInputStream)
 
 val tfText = tfDoc.getParagraphs.asScala.map(_.getText).mkString("\n")
 val images = tfDoc.getAllPictures.asScala.map(p => {
   val bytes: Array[Byte] = p.getData
-  val pictureType: Int = p.getPictureType //You can match this against statics in org.apache.poi.xwpf.usermodel.Document
+  //Match this against constants in org.apache.poi.xwpf.usermodel.Document
+  val pictureType: Int = p.getPictureType
 })
 //upload images now or something
 println(tfText)
 println(s"Found ${images.size} picture 📸")
 
 
-tfInputStream.close()
-tfDoc.close()
+val tables = tfDoc.getTables
+tables.forEach(table => {
+  val rows = table.getRows
+})
+
+
+//tfInputStream.close()
+//tfDoc.close()
