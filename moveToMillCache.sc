@@ -12,61 +12,77 @@ import ujson._
 //Create a new out directory with relative paths in meta.json
 
 val metaPathWithRef: Regex = "(q?ref:[0-9a-fA-F]+:)(.*)".r
-val isPath: Regex = "/(.*)".r
-def newPath(relativeTo: Path): PartialFunction[String, String] = {
-  case metaPathWithRef(ref, path) => s"$ref${Path(path).relativeTo(relativeTo)}"
-  case isPath(path) => Path(path).relativeTo(relativeTo).toString()
-  case notpath => notpath
+val maybePathRegex: Regex = "(/.*)".r //TODO better approach?
+
+//TODO could do something better. Coursier references won't work because it's located at ~/
+
+def convertIfPath(relativeTo: Path): Value => Option[String] = {
+  case Str(metaPathWithRef(ref, path)) => Some(s"$ref${Path(path).relativeTo(relativeTo)}")
+  case Str(maybePathRegex(maybePath)) =>
+    Try {
+      Path(maybePath).relativeTo(relativeTo).toString()
+    } toOption
+  case _ => None
 }
+val outDir: Path = pwd / 'out
+val newOutDir: Path = pwd / 'newOut
 
 def op(taskName: String): Unit = {
-  val outDir: Path = pwd / 'out
-  val newOutDir: Path = pwd / 'newOut
 
   val taskDir: Path = outDir / taskName
   val newTaskDir: Path = newOutDir / taskName
-
-  rm(newOutDir)
-  mkdir(newOutDir)
   cp(taskDir, newTaskDir)
 
   def rewriteMetaJsons(): Unit = {
-    val subTasksToCopy: LsSeq = ls ! taskDir //TODO In actual script this would be a subtasks or there is none (by presense of meta.json) or maybe there actually can be both?
-    subTasksToCopy.toList.foreach(rewriteMetaJson)
+    val metaJsons =  if (ammonite.ops.exists(taskDir/"meta.json")) {
+      List(taskDir)
+    } else {
+      ls ! taskDir toList
+    }
+    metaJsons.foreach(rewriteMetaJson)
   }
 
   //Rewrite metaJson so if there are any absolute paths then convert them to relative paths
-  def rewriteMetaJson(dir: Path): Unit = {
-    val metaJson: Value = ujson.read(dir / "meta.json" toIO)
-    metaJson.obj
-      .get("value")
-      .foreach {
-        case Obj(obj) =>
-          obj.foreach({ case (k, v) =>
-            obj.update(k, newPath(dir)(v.str))
-          })
-        case Arr(arr) =>
-          arr.map(v =>
-            newPath(dir)(v.str)
-          )
-        case Str(str) =>
-          metaJson.update("value", Str(newPath(dir)(str)))
-      }
+  def rewriteMetaJson(baseDir: Path): Unit = {
+    val metaDir = baseDir / "meta.json"
+    val metaJson = ujson.read(metaDir toIO)
 
-    ujson.write(metaJson, 4)
+    metaJson.obj.get("value").foreach {
+      case Obj(obj) =>
+        obj.foreach({ case (k, v) =>
+          convertIfPath(baseDir)(v).foreach(s => {println(s); obj.update(k, s)})
+        })
+      case Arr(arr) =>
+        metaJson.obj.put("value",
+          Arr(
+            arr.map(v =>
+              convertIfPath(baseDir)(v).map({ s => Str(s) }).getOrElse(v)
+            )
+          )
+        )
+      case Str(str) =>
+        convertIfPath(baseDir)(str).foreach(s =>
+          metaJson.obj.put("value", Str(s))
+        )
+      case _ => ()
+    }
+    println(s"Writing $metaJson")
+    ammonite.ops.write.over(newOutDir / "meta.json", ujson.write(metaJson, 4)) //TODO actually change this later to new out
   }
 
   //  mkdir! cachedTaskDir
   rewriteMetaJsons()
 }
 
-op("bar")
+rm(newOutDir)
+mkdir(newOutDir)
 op("foo")
+op("bar")
 
 
 /**
  *
- * Crap there's Path.relativeTo
+ * Crap there's Path.relativeTo don't need this
  * Find common ancestor
  * abspath = /Users/sjafri/Developer/mill/scratch/out/bar/compile/dest/classes/HelloWorld.class //or without file
  * path = /Users/sjafri/Developer/mill/scratch/out/bar/compile/
@@ -81,8 +97,6 @@ op("foo")
  * /Users/sjafri/Developer/mill/scratch replace common ancestor to ./
  * to ../../../bar/src/Main.scala
  *
- * @param abspath
- * @param from directory the path should be absolute from. Defaults to cwd.
  */
 //def absToRelPath(abspath: Path, from: Path = pwd): RelPath = {
 //  abspath.segments
